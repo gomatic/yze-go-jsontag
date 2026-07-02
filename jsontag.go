@@ -10,6 +10,7 @@ package jsontag
 import (
 	"go/ast"
 	"go/token"
+	"go/types"
 	"reflect"
 	"strconv"
 	"strings"
@@ -36,23 +37,31 @@ var Registration = goyze.Registration{
 }
 
 // run reports every non-snake_case json/yaml tag key in the analyzed package,
-// skipping files that mirror an external self-describing schema.
+// skipping files that mirror an external self-describing schema and struct
+// graphs that are only ever DECODED (their keys belong to the producer).
 func run(pass *analysis.Pass) (any, error) {
+	mirrors := decodeOnlyTypes(pass)
 	for _, file := range pass.Files {
 		if !mirrorsExternalSchema(file) {
-			checkFile(pass, file)
+			checkFile(pass, file, mirrors)
 		}
 	}
 	return nil, nil
 }
 
-// checkFile reports every non-snake_case tag key in one file's struct types.
-func checkFile(pass *analysis.Pass, file *ast.File) {
+// checkFile reports every non-snake_case tag key in one file's struct types,
+// skipping decode-only mirror structs.
+func checkFile(pass *analysis.Pass, file *ast.File, mirrors []types.Type) {
 	ast.Inspect(file, func(n ast.Node) bool {
-		if st, ok := n.(*ast.StructType); ok {
-			for _, field := range st.Fields.List {
-				checkField(pass, field)
-			}
+		st, ok := n.(*ast.StructType)
+		if !ok {
+			return true
+		}
+		if tv, found := pass.TypesInfo.Types[st]; found && containsType(mirrors, tv.Type) {
+			return true
+		}
+		for _, field := range st.Fields.List {
+			checkField(pass, field)
 		}
 		return true
 	})
