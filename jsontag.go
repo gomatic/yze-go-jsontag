@@ -1,6 +1,10 @@
 // Package jsontag provides a go/analysis analyzer that reports struct field
 // json/yaml tag keys that are not snake_case, per the gomatic data-format
-// standard that serialized keys are snake_case.
+// standard that serialized keys are snake_case. A file that mirrors an
+// external, self-describing JSON-Schema document — detected by a struct field
+// tagged `$schema`, JSON Schema's self-description marker — is exempt: its
+// keys reproduce the external standard (SARIF, JSON-Schema catalogs) and are
+// not the module's to choose.
 package jsontag
 
 import (
@@ -12,18 +16,15 @@ import (
 
 	goyze "github.com/gomatic/go-yze"
 	"golang.org/x/tools/go/analysis"
-	"golang.org/x/tools/go/analysis/passes/inspect"
-	"golang.org/x/tools/go/ast/inspector"
 )
 
 const message = "struct tag key %q is not snake_case"
 
 // Analyzer reports struct field json/yaml tag keys that are not snake_case.
 var Analyzer = &analysis.Analyzer{
-	Name:     "jsontag",
-	Doc:      "reports struct field json/yaml tag keys that are not snake_case, per the gomatic data-format standard",
-	Requires: []*analysis.Analyzer{inspect.Analyzer},
-	Run:      run,
+	Name: "jsontag",
+	Doc:  "reports struct field json/yaml tag keys that are not snake_case, per the gomatic data-format standard",
+	Run:  run,
 }
 
 // Registration declares this analyzer to the yze framework.
@@ -34,15 +35,58 @@ var Registration = goyze.Registration{
 	Analyzer:   Analyzer,
 }
 
-// run reports every non-snake_case json/yaml tag key in the analyzed package.
+// run reports every non-snake_case json/yaml tag key in the analyzed package,
+// skipping files that mirror an external self-describing schema.
 func run(pass *analysis.Pass) (any, error) {
-	insp := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
-	insp.Preorder([]ast.Node{(*ast.StructType)(nil)}, func(n ast.Node) {
-		for _, field := range n.(*ast.StructType).Fields.List {
-			checkField(pass, field)
+	for _, file := range pass.Files {
+		if !mirrorsExternalSchema(file) {
+			checkFile(pass, file)
 		}
-	})
+	}
 	return nil, nil
+}
+
+// checkFile reports every non-snake_case tag key in one file's struct types.
+func checkFile(pass *analysis.Pass, file *ast.File) {
+	ast.Inspect(file, func(n ast.Node) bool {
+		if st, ok := n.(*ast.StructType); ok {
+			for _, field := range st.Fields.List {
+				checkField(pass, field)
+			}
+		}
+		return true
+	})
+}
+
+// mirrorsExternalSchema reports whether the file declares a struct field whose
+// json key is `$schema` — JSON Schema's self-description marker. Such a file
+// reproduces an externally defined document (SARIF, a schema catalog); its
+// keys follow that standard, not the gomatic one.
+func mirrorsExternalSchema(file *ast.File) bool {
+	found := false
+	ast.Inspect(file, func(n ast.Node) bool {
+		st, ok := n.(*ast.StructType)
+		if !ok {
+			return !found
+		}
+		for _, field := range st.Fields.List {
+			if fieldKeyIsSchema(field) {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+// fieldKeyIsSchema reports whether a field's json tag key is `$schema`.
+func fieldKeyIsSchema(field *ast.Field) bool {
+	if field.Tag == nil {
+		return false
+	}
+	tag, _ := strconv.Unquote(field.Tag.Value)
+	value, ok := reflect.StructTag(tag).Lookup("json")
+	return ok && strings.SplitN(value, ",", 2)[0] == "$schema"
 }
 
 // checkField inspects one struct field's tag for json and yaml keys.
