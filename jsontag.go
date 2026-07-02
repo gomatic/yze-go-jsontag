@@ -53,15 +53,15 @@ func checkField(pass *analysis.Pass, field *ast.Field) {
 	tag, _ := strconv.Unquote(field.Tag.Value)
 	st := reflect.StructTag(tag)
 	for _, key := range []string{"json", "yaml"} {
-		checkTagKey(pass, field.Tag.Pos(), st, keyParam(key))
+		checkTagKey(pass, field.Tag.Pos(), st, tagKey(key))
 	}
 }
 
-// keyParam names the key parameter of checkTagKey; rename it to the real domain concept.
-type keyParam string
+// tagKey is a struct-tag key naming a serialization format ("json", "yaml").
+type tagKey string
 
 // checkTagKey reports the named key of st when its name is not snake_case.
-func checkTagKey(pass *analysis.Pass, pos token.Pos, st reflect.StructTag, key keyParam) {
+func checkTagKey(pass *analysis.Pass, pos token.Pos, st reflect.StructTag, key tagKey) {
 	value, ok := st.Lookup(string(key))
 	if !ok {
 		return
@@ -70,16 +70,16 @@ func checkTagKey(pass *analysis.Pass, pos token.Pos, st reflect.StructTag, key k
 	if name == "" || name == "-" {
 		return
 	}
-	if !isSnakeCase(nameParam(name)) {
+	if !isSnakeCase(serializedKey(name)) {
 		pass.Reportf(pos, message, name)
 	}
 }
 
-// nameParam names the name parameter of isSnakeCase; rename it to the real domain concept.
-type nameParam string
+// serializedKey is the key a field serializes to: the first comma-separated element of its json/yaml tag value.
+type serializedKey string
 
 // isSnakeCase reports whether name contains no uppercase ASCII letter.
-func isSnakeCase(name nameParam) bool {
+func isSnakeCase(name serializedKey) bool {
 	for _, r := range string(name) {
 		if r >= 'A' && r <= 'Z' {
 			return false
