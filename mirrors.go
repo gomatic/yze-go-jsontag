@@ -5,6 +5,7 @@ package jsontag
 import (
 	"go/ast"
 	"go/types"
+	"strings"
 
 	"golang.org/x/tools/go/analysis"
 )
@@ -12,10 +13,14 @@ import (
 // decodeOnlyTypes collects the struct types reachable from decode call targets
 // (Unmarshal's second argument, Decode's first) and not from encode arguments
 // (Marshal/MarshalIndent/Encode) — a decode-only graph mirrors an external
-// producer's document, whose keys are not the module's to choose.
+// producer's document, whose keys are not the module's to choose. Test files
+// are ignored: usage in _test.go neither grants nor revokes the exemption.
 func decodeOnlyTypes(pass *analysis.Pass) []types.Type {
 	var decoded, encoded []types.Type
 	for _, file := range pass.Files {
+		if isTestFile(pass, file) {
+			continue
+		}
 		ast.Inspect(file, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if ok {
@@ -26,6 +31,12 @@ func decodeOnlyTypes(pass *analysis.Pass) []types.Type {
 		})
 	}
 	return minusTypes(expandAll(decoded), expandAll(encoded))
+}
+
+// isTestFile reports whether file is a _test.go file, which must not
+// contribute to the decode/encode sets.
+func isTestFile(pass *analysis.Pass, file *ast.File) bool {
+	return strings.HasSuffix(pass.Fset.Position(file.FileStart).Filename, "_test.go")
 }
 
 // decodeArg yields the argument index carrying a decode target, or -1: the
@@ -89,12 +100,17 @@ func expandAll(roots []types.Type) []types.Type {
 	return out
 }
 
-// expand walks one type, accumulating every reachable struct type.
+// expand walks one type — unaliased first, so `type a = wire` reaches wire —
+// accumulating every reachable struct type.
 func expand(t types.Type, seen map[types.Type]bool, out []types.Type) []types.Type {
+	t = types.Unalias(t)
 	if t == nil || seen[t] {
 		return out
 	}
 	seen[t] = true
+	if named, ok := t.(*types.Named); ok {
+		return expandNamed(named, seen, out)
+	}
 	if elem := elementOf(t); elem != nil {
 		return expand(elem, seen, out)
 	}
@@ -104,7 +120,19 @@ func expand(t types.Type, seen map[types.Type]bool, out []types.Type) []types.Ty
 	return out
 }
 
-// elementOf unwraps one container/pointer/named level, or nil at a leaf.
+// expandNamed walks a named type through its generic origin — so an
+// instantiated decode target (box[wire]) exempts the generic declaration,
+// whose ast.StructType types to the uninstantiated origin — plus every type
+// argument, so instantiation-only structs (wire) are reached too.
+func expandNamed(named *types.Named, seen map[types.Type]bool, out []types.Type) []types.Type {
+	args := named.TypeArgs()
+	for i := 0; i < args.Len(); i++ {
+		out = expand(args.At(i), seen, out)
+	}
+	return expand(named.Origin().Underlying(), seen, out)
+}
+
+// elementOf unwraps one container/pointer level, or nil at a leaf.
 func elementOf(t types.Type) types.Type {
 	switch u := t.(type) {
 	case *types.Pointer:
@@ -115,8 +143,6 @@ func elementOf(t types.Type) types.Type {
 		return u.Elem()
 	case *types.Map:
 		return u.Elem()
-	case *types.Named:
-		return u.Underlying()
 	default:
 		return nil
 	}

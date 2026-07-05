@@ -1,10 +1,30 @@
 // Package jsontag provides a go/analysis analyzer that reports struct field
 // json/yaml tag keys that are not snake_case, per the gomatic data-format
-// standard that serialized keys are snake_case. A file that mirrors an
-// external, self-describing JSON-Schema document — detected by a struct field
-// tagged `$schema`, JSON Schema's self-description marker — is exempt: its
-// keys reproduce the external standard (SARIF, JSON-Schema catalogs) and are
-// not the module's to choose.
+// standard that serialized keys are snake_case. A key must match
+// ^[a-z0-9]+(_[a-z0-9]+)*$ — lowercase ASCII words separated by single
+// underscores. The empty key and the "-" (skip) key are never checked, and
+// tag options after the first comma (",omitempty", ",string") are ignored.
+//
+// Two exemptions cover struct types whose keys mirror a document defined by
+// an external producer and so are not the module's to choose:
+//
+//   - Schema mirrors: a file declaring a struct field whose json key is
+//     `$schema` — JSON Schema's self-description marker — is exempt as a
+//     whole; it reproduces an externally defined document (SARIF, a
+//     JSON-Schema catalog).
+//
+//   - Decode-only mirrors: a struct type is exempt when it is reachable —
+//     through pointers, slices, arrays, map values, named types, type
+//     aliases, generic instantiations (both the generic declaration and its
+//     type arguments), and struct fields — from a decode call target (the
+//     second argument of an Unmarshal(data, target), the sole argument of a
+//     Decode(target); matched by callee name and arity) and never reachable
+//     from an encode argument (Marshal, MarshalIndent, Encode). Such a graph
+//     is only ever populated from a foreign producer's document. _test.go
+//     files are ignored when computing this exemption: test usage neither
+//     grants it (a decode only in a test exempts nothing) nor revokes it (a
+//     round-trip test's Marshal does not cancel a production decode-only
+//     mirror).
 package jsontag
 
 import (
@@ -12,6 +32,7 @@ import (
 	"go/token"
 	"go/types"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -131,12 +152,10 @@ func checkTagKey(pass *analysis.Pass, pos token.Pos, st reflect.StructTag, key t
 // serializedKey is the key a field serializes to: the first comma-separated element of its json/yaml tag value.
 type serializedKey string
 
-// isSnakeCase reports whether name contains no uppercase ASCII letter.
+// snakeCase matches lowercase ASCII words separated by single underscores.
+var snakeCase = regexp.MustCompile(`^[a-z0-9]+(_[a-z0-9]+)*$`)
+
+// isSnakeCase reports whether name is snake_case: ^[a-z0-9]+(_[a-z0-9]+)*$.
 func isSnakeCase(name serializedKey) bool {
-	for _, r := range string(name) {
-		if r >= 'A' && r <= 'Z' {
-			return false
-		}
-	}
-	return true
+	return snakeCase.MatchString(string(name))
 }

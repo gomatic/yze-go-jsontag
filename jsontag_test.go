@@ -10,7 +10,7 @@ import (
 )
 
 func TestNonSnakeCaseTagsAreReported(t *testing.T) {
-	analysistest.Run(t, analysistest.TestData(), jsontag.Analyzer, "a", "b", "c")
+	analysistest.Run(t, analysistest.TestData(), jsontag.Analyzer, "a", "b", "c", "d", "e")
 }
 
 func TestRegistrationIsWellFormed(t *testing.T) {
