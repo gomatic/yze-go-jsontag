@@ -41,7 +41,7 @@ func isTestFile(pass *analysis.Pass, file *ast.File) bool {
 
 // decodeArg yields the argument index carrying a decode target, or -1: the
 // second of an Unmarshal(data, target), the first of a Decode(target).
-func decodeArg(call *ast.CallExpr) int {
+func decodeArg(call *ast.CallExpr) argIndex {
 	switch calleeName(call) {
 	case "Unmarshal":
 		if len(call.Args) == 2 {
@@ -56,7 +56,7 @@ func decodeArg(call *ast.CallExpr) int {
 }
 
 // encodeArg yields the argument index carrying an encode source, or -1.
-func encodeArg(call *ast.CallExpr) int {
+func encodeArg(call *ast.CallExpr) argIndex {
 	switch calleeName(call) {
 	case "Marshal", "MarshalIndent", "Encode":
 		if len(call.Args) >= 1 {
@@ -78,8 +78,11 @@ func calleeName(call *ast.CallExpr) string {
 	}
 }
 
+// argIndex is a position in a call's argument list; -1 marks no argument.
+type argIndex int
+
 // appendRoot appends the type of call's idx-th argument.
-func appendRoot(pass *analysis.Pass, roots []types.Type, call *ast.CallExpr, idx int) []types.Type {
+func appendRoot(pass *analysis.Pass, roots []types.Type, call *ast.CallExpr, idx argIndex) []types.Type {
 	if idx < 0 {
 		return roots
 	}
