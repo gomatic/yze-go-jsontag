@@ -5,6 +5,14 @@
 // underscores. The empty key and the "-" (skip) key are never checked, and
 // tag options after the first comma (",omitempty", ",string") are ignored.
 //
+// Keys beginning with "@" are sanctioned: they are JSON-LD keywords
+// (@context, @id, @type, @value, @language, @graph, …) mandated by external
+// specifications (W3C Verifiable Credentials and other JSON-LD vocabularies).
+// Like the `$schema` marker below, the "@" prefix itself marks externally
+// specified wire syntax rather than a naming-style choice, and external specs
+// own that namespace entirely — so the remainder of an @-prefixed key is
+// never snake_case-checked.
+//
 // Two exemptions cover struct types whose keys mirror a document defined by
 // an external producer and so are not the module's to choose:
 //
@@ -142,6 +150,10 @@ func checkTagKey(pass *analysis.Pass, pos token.Pos, st reflect.StructTag, key t
 	}
 	name := strings.SplitN(value, ",", 2)[0]
 	if name == "" || name == "-" {
+		return
+	}
+	// JSON-LD keyword namespace — externally mandated wire syntax, never style-checked.
+	if strings.HasPrefix(name, "@") {
 		return
 	}
 	if !isSnakeCase(serializedKey(name)) {

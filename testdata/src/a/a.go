@@ -16,4 +16,14 @@ type Tags struct {
 	Doubled string `json:"user__id"`   // want `is not snake_case`
 	Accent  string `json:"usér_id"`    // want `is not snake_case`
 	Digits  string `json:"sha256_sum"` // snake with digits — OK
+
+	// @-prefixed keys are JSON-LD keywords (W3C Verifiable Credentials etc.)
+	// — externally mandated wire syntax, like the `$schema` marker. The "@"
+	// prefix itself marks external ownership, so ANY @-prefixed key is
+	// sanctioned: external specs own that namespace entirely, and the
+	// remainder is never snake_case-checked.
+	Context string `json:"@context"`     // JSON-LD keyword — OK
+	Type    string `json:"@type"`        // JSON-LD keyword — OK
+	Weird   string `json:"@Weird-Thing"` // @-prefixed, non-snake remainder — still OK: the @ namespace is external
+	YamlAt  string `yaml:"@context"`     // @-prefix sanction applies to yaml keys too — OK
 }
