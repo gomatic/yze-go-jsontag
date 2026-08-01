@@ -39,15 +39,22 @@ func isTestFile(pass *analysis.Pass, file *ast.File) bool {
 	return strings.HasSuffix(pass.Fset.Position(file.FileStart).Filename, "_test.go")
 }
 
+// The decode entry points this analyzer recognises, named so the call names
+// have one definition rather than being repeated at each match site.
+const (
+	methodUnmarshal = "Unmarshal"
+	methodDecode    = "Decode"
+)
+
 // decodeArg yields the argument index carrying a decode target, or -1: the
 // second of an Unmarshal(data, target), the first of a Decode(target).
 func decodeArg(call *ast.CallExpr) argIndex {
 	switch calleeName(call) {
-	case "Unmarshal":
+	case methodUnmarshal:
 		if len(call.Args) == 2 {
 			return 1
 		}
-	case "Decode":
+	case methodDecode:
 		if len(call.Args) == 1 {
 			return 0
 		}
